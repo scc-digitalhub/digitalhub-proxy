@@ -1,0 +1,26 @@
+server:
+  port: 9000
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5435/mydb
+    username: local
+    password: local
+    hikari:
+      driver-class-name: org.postgresql.Driver
+
+  application:
+    name: CoreProxy
+  cloud:
+    gateway:
+      routes:
+        - id: python-service-proxy
+          uri: http://localhost:30156
+          predicates:
+            - Path=/**
+          filters:
+            - StripPrefix=1
+            - name: CaptureResponseFilter
+
+mapper:
+  module: textMapperModule
