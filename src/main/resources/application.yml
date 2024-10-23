@@ -11,16 +11,23 @@ spring:
 
   application:
     name: CoreProxy
-  cloud:
-    gateway:
-      routes:
-        - id: python-service-proxy
-          uri: http://localhost:30156
-          predicates:
-            - Path=/**
-          filters:
-            - StripPrefix=1
-            - name: CaptureResponseFilter
+#  cloud:
+#    gateway:
+#      routes:
+#        - id: python-service-proxy
+#          uri: http://localhost:30156
+#          predicates:
+#            - Path=/**
+#          filters:
+#            - StripPrefix=1
+#            - name: CaptureResponseFilter
+
+gateway:
+  route:
+    id: python-service-proxy
+    uri: http://localhost:30156
+    path: /**
+
 
 mapper:
   module: textMapperModule

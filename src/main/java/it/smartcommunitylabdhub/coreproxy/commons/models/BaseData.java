@@ -14,7 +14,7 @@ import java.util.Map;
 @NoArgsConstructor
 public class BaseData implements Serializable {
 
-    private Long id;
+    private String id;
     private String path;
     private byte[] requestBody;
     private byte[] responseBody;
