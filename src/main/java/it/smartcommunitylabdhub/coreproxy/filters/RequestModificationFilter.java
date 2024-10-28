@@ -1,11 +1,14 @@
 package it.smartcommunitylabdhub.coreproxy.filters;
 
-import it.smartcommunitylabdhub.coreproxy.commons.events.RequestEventData;
+import it.smartcommunitylabdhub.coreproxy.commons.events.EventData;
+import it.smartcommunitylabdhub.coreproxy.commons.interfaces.MapperModule;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.gateway.filter.GatewayFilter;
 import org.springframework.cloud.gateway.filter.factory.AbstractGatewayFilterFactory;
 import org.springframework.cloud.gateway.filter.factory.rewrite.ModifyRequestBodyGatewayFilterFactory;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.core.Ordered;
 import org.springframework.core.io.buffer.DataBuffer;
@@ -13,10 +16,11 @@ import org.springframework.core.io.buffer.DataBufferFactory;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.stereotype.Component;
+import org.springframework.util.AntPathMatcher;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.UUID;
 
 @Slf4j
@@ -25,12 +29,25 @@ public class RequestModificationFilter extends AbstractGatewayFilterFactory<Requ
 
     private final ModifyRequestBodyGatewayFilterFactory modifyRequestBodyFilterFactory;
     private final ApplicationEventPublisher eventPublisher;
+    private final MapperModule mapper;
+
+    private final AntPathMatcher matcher = new AntPathMatcher();
 
     @Autowired
-    public RequestModificationFilter(ModifyRequestBodyGatewayFilterFactory modifyRequestBodyFilterFactory, ApplicationEventPublisher eventPublisher) {
+    public RequestModificationFilter(ModifyRequestBodyGatewayFilterFactory modifyRequestBodyFilterFactory,
+                                     ApplicationEventPublisher eventPublisher,
+                                     @Value("${mapper.module}") String qualifier, ApplicationContext applicationContext) {
         super(Config.class);
+
+        // Retrieve the mapper
+        this.mapper = (MapperModule) applicationContext.getBean(qualifier);
+        if (this.mapper == null) {
+            throw new IllegalArgumentException("No mapper found with qualifier: " + qualifier);
+        }
+
         this.modifyRequestBodyFilterFactory = modifyRequestBodyFilterFactory;
         this.eventPublisher = eventPublisher;
+
     }
 
     @Override
@@ -38,15 +55,14 @@ public class RequestModificationFilter extends AbstractGatewayFilterFactory<Requ
         return (exchange, chain) -> {
 
             // Generate a UUID for x-session-id
-            String sessionId = UUID.randomUUID().toString();
+            String xSessionId = UUID.randomUUID().toString();
 
             // Add the x-session-id header to the request
             ServerHttpRequest modifiedRequest = exchange.getRequest().mutate()
-                    .header("x-session-id", sessionId)
+                    .header("x-session-id", xSessionId)
                     .build();
 
-            log.info("Generated x-session-id: {}", sessionId);
-
+            log.info("Generated x-session-id: {}", xSessionId);
 
             // Replace the original exchange with the one containing the modified request
             return modifyRequestBodyFilterFactory.apply(
@@ -56,8 +72,8 @@ public class RequestModificationFilter extends AbstractGatewayFilterFactory<Requ
                                 ServerHttpRequest request = exchange1.getRequest();
 
                                 // Log request path
-                                String requestPath = request.getURI().getPath();
-                                log.info("Request Path: {}", requestPath);
+                                String path = request.getURI().getPath();
+                                log.info("Request Path: {}", path);
 
                                 // Log request headers, including the new x-session-id
                                 log.info("Request Headers:");
@@ -82,15 +98,22 @@ public class RequestModificationFilter extends AbstractGatewayFilterFactory<Requ
                                             dataBuffer.read(bytes);
                                             DataBufferUtils.release(dataBuffer); // Release the buffer after reading
 
-                                            // Publish event to event bus
-                                            eventPublisher.publishEvent(new RequestEventData(
-                                                    this,
-                                                    sessionId,
-                                                    bytes,
-                                                    request.getHeaders().toSingleValueMap()
-                                            ));
-//                                            String originalBodyString = new String(bytes, StandardCharsets.UTF_8);
-//                                            log.info("Original request body: {}", originalBodyString);
+                                            boolean hasMatchingPattern = mapper.patterns().stream()
+                                                    .anyMatch(pattern -> matcher.match(pattern, path));
+
+                                            // Perform an action based on whether there is a matching path
+                                            if (hasMatchingPattern) {
+                                                // Publish event to event bus
+                                                eventPublisher.publishEvent(new EventData(
+                                                        this,
+                                                        xSessionId,
+                                                        new byte[0],
+                                                        bytes,
+                                                        path,
+                                                        request.getHeaders().toSingleValueMap(),
+                                                        Instant.now()
+                                                ));
+                                            }
 
                                             // Return the original DataBuffer unchanged
                                             DataBuffer newDataBuffer = dataBufferFactory.wrap(bytes);

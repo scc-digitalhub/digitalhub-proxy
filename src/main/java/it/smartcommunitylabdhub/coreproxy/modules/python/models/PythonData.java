@@ -12,7 +12,6 @@ import lombok.experimental.SuperBuilder;
 import java.sql.Types;
 import java.util.List;
 
-@SuperBuilder
 @Getter
 @Setter
 public class PythonData extends AbstractBaseData {

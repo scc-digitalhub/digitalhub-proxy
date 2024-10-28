@@ -7,9 +7,14 @@ import java.util.List;
 
 public interface MapperModule {
 
-    List<String> paths(); //<Mapper>
+    String tableName();
+
+    List<String> patterns(); //<Mapper>
 
     List<TableEntry> tableEntries();
 
-    AbstractBaseData map(BaseData baseData);
+    AbstractBaseData mapRequest(BaseData baseData);
+
+    AbstractBaseData mapResponse(BaseData baseData);
+
 }

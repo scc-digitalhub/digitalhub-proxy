@@ -12,14 +12,15 @@ import java.util.List;
 
 @Getter
 @Setter
-@SuperBuilder
 public class TextData extends AbstractBaseData {
-    private String text;
+    private String response;
+    private String request;
 
     @Override
     public List<TableValue> tableValues() {
         return new ArrayList<>() {{
-            add(new TableValue("text", Types.VARCHAR, text));
+            add(new TableValue("response", Types.VARCHAR, response));
+            add(new TableValue("request", Types.VARCHAR, request));
         }};
     }
 }
