@@ -15,6 +15,7 @@ public class BaseData implements Serializable {
 
     private String id;
     private String path;
+    private String method;
     private byte[] requestBody;
     private byte[] responseBody;
 
@@ -33,6 +34,10 @@ public class BaseData implements Serializable {
 
     protected void setPath(String path) {
         this.path = path;
+    }
+
+    protected void setMethod(String method) {
+        this.method = method;
     }
 
     protected void setRequestBody(byte[] requestBody) {

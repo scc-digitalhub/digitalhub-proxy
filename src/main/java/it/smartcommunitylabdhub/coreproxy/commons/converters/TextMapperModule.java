@@ -56,8 +56,6 @@ public class TextMapperModule implements MapperModule {
         textData.mapBaseFields(baseData);
         textData.setRequest(new String(baseData.getRequestBody(),
                 StandardCharsets.UTF_8));
-        textData.setResponse(new String(baseData.getResponseBody(),
-                StandardCharsets.UTF_8));
 
         return textData;
     }

@@ -1,6 +1,7 @@
 package it.smartcommunitylabdhub.coreproxy.filters;
 
-import it.smartcommunitylabdhub.coreproxy.commons.events.EventData;
+import it.smartcommunitylabdhub.coreproxy.commons.events.EventDataRequest;
+import it.smartcommunitylabdhub.coreproxy.commons.events.EventDataResponse;
 import it.smartcommunitylabdhub.coreproxy.commons.interfaces.MapperModule;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -99,16 +100,14 @@ public class ResponseModificationFilter extends AbstractGatewayFilterFactory<Res
 
                                         if (hasMatchingPattern && xSessionId != null) {
 
-
                                             // Add the x-session-id header to the response
                                             response.getHeaders().add("x-session-id", xSessionId);
 
                                             // Publish event to event bus
-                                            eventPublisher.publishEvent(new EventData(
+                                            eventPublisher.publishEvent(new EventDataResponse(
                                                     this,
                                                     xSessionId,
                                                     bytes,
-                                                    new byte[0],
                                                     path,
                                                     response.getHeaders().toSingleValueMap(),
                                                     Instant.now()

@@ -18,6 +18,7 @@ public abstract class AbstractBaseData extends BaseData {
     public void mapBaseFields(BaseData baseData) {
         this.setId(baseData.getId());
         this.setPath(baseData.getPath());
+        this.setMethod(baseData.getMethod());
         this.setRequestBody(baseData.getRequestBody());
         this.setResponseBody(baseData.getResponseBody());
         this.setRequestHeaders(baseData.getRequestHeaders());

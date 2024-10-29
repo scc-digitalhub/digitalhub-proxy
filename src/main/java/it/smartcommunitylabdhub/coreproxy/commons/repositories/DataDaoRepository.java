@@ -2,6 +2,7 @@ package it.smartcommunitylabdhub.coreproxy.commons.repositories;
 
 import it.smartcommunitylabdhub.coreproxy.commons.interfaces.TableEntry;
 import it.smartcommunitylabdhub.coreproxy.commons.interfaces.TableValue;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceUtils;
 import org.springframework.stereotype.Repository;
@@ -11,12 +12,14 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Types;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+@Slf4j
 @Repository
 public class DataDaoRepository {
 
@@ -113,4 +116,52 @@ public class DataDaoRepository {
             return Optional.empty();
         }
     }
+
+
+    public void updateNullColumnsOnly(String tableName, List<TableValue> valuesToUpdate, String id) throws SQLException {
+        if (valuesToUpdate.isEmpty()) {
+            log.info("No values provided to update for ID: {}", id);
+            return; // Nothing to update if there are no values provided
+        }
+
+        // Step 1: Query the current row for columns that are null
+        String columnNames = valuesToUpdate.stream()
+                .map(TableValue::key)
+                .reduce((col1, col2) -> col1 + ", " + col2)
+                .orElse(""); // Construct comma-separated list of column names
+
+        String selectSql = "SELECT " + columnNames + " FROM " + tableName + " WHERE id = ?;";
+        Map<String, Object> currentValues = jdbcTemplate.queryForMap(selectSql, id);
+
+        // Step 2: Filter out columns that are already non-null in the database
+        List<TableValue> nullColumnsToUpdate = valuesToUpdate.stream()
+                .filter(tv -> currentValues.get(tv.key()) == null) // Only keep columns where DB value is null
+                .toList();
+
+        if (nullColumnsToUpdate.isEmpty()) {
+            log.info("No null columns to update for ID: {}", id);
+            return; // Nothing to update if there are no null columns
+        }
+
+        // Step 3: Build SQL query for updating only the null columns
+        String updateSql = "UPDATE " + tableName +
+                " SET " + String.join(", ", nullColumnsToUpdate.stream().map(tv -> tv.key() + " = ?").toList()) +
+                " WHERE id = ?;";
+
+        // Prepare the values and types arrays for the update operation
+        Object[] values = Stream.concat(
+                nullColumnsToUpdate.stream().map(TableValue::value),  // Stream of values to set in null columns
+                Stream.of(id)  // Add the ID at the end
+        ).toArray();
+
+        int[] types = Stream.concat(
+                nullColumnsToUpdate.stream().map(TableValue::type),  // Stream of column data types
+                Stream.of(Types.VARCHAR)  // Add the ID type at the end
+        ).mapToInt(Integer::intValue).toArray();
+
+        // Step 4: Execute the update with values and types
+        int rowsUpdated = jdbcTemplate.update(updateSql, values, types);
+        log.info("Updated {} rows for ID: {}", rowsUpdated, id);
+    }
+
 }

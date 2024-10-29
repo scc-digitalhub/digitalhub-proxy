@@ -1,6 +1,6 @@
 package it.smartcommunitylabdhub.coreproxy.filters;
 
-import it.smartcommunitylabdhub.coreproxy.commons.events.EventData;
+import it.smartcommunitylabdhub.coreproxy.commons.events.EventDataRequest;
 import it.smartcommunitylabdhub.coreproxy.commons.interfaces.MapperModule;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -64,6 +64,10 @@ public class RequestModificationFilter extends AbstractGatewayFilterFactory<Requ
 
             log.info("Generated x-session-id: {}", xSessionId);
 
+            // Extract and log the request method (GET, POST, etc.)
+            String method = modifiedRequest.getMethod().name();
+            log.info("Request Method: {}", method);
+
             // Replace the original exchange with the one containing the modified request
             return modifyRequestBodyFilterFactory.apply(
                     new ModifyRequestBodyGatewayFilterFactory.Config()
@@ -84,9 +88,27 @@ public class RequestModificationFilter extends AbstractGatewayFilterFactory<Requ
                                 // Define a new DataBufferFactory for the modified request body
                                 DataBufferFactory dataBufferFactory = exchange1.getResponse().bufferFactory();
 
+                                boolean hasMatchingPattern = mapper.patterns().stream()
+                                        .anyMatch(pattern -> matcher.match(pattern, path));
+
                                 // Handle null or empty DataBuffer (originalRequestBody)
                                 if (originalRequestBody == null) {
-                                    log.warn("Original request body is empty or null. Returning empty DataBuffer.");
+                                    log.warn("Original request body is empty or null. Returning empty DataBuffer but send event to store request.");
+
+                                    // Send event based on whether there is a matching path
+                                    if (hasMatchingPattern) {
+                                        // Publish event to event bus
+                                        eventPublisher.publishEvent(new EventDataRequest(
+                                                this,
+                                                xSessionId,
+                                                new byte[0], // GET request body is empty
+                                                path,
+                                                method,
+                                                request.getHeaders().toSingleValueMap(),
+                                                Instant.now()
+                                        ));
+                                    }
+
                                     // Return an empty DataBuffer if the original body is null or empty
                                     return Mono.just(dataBufferFactory.wrap(new byte[0]));
                                 }
@@ -98,18 +120,15 @@ public class RequestModificationFilter extends AbstractGatewayFilterFactory<Requ
                                             dataBuffer.read(bytes);
                                             DataBufferUtils.release(dataBuffer); // Release the buffer after reading
 
-                                            boolean hasMatchingPattern = mapper.patterns().stream()
-                                                    .anyMatch(pattern -> matcher.match(pattern, path));
-
-                                            // Perform an action based on whether there is a matching path
+                                            // Send event based on whether there is a matching path
                                             if (hasMatchingPattern) {
                                                 // Publish event to event bus
-                                                eventPublisher.publishEvent(new EventData(
+                                                eventPublisher.publishEvent(new EventDataRequest(
                                                         this,
                                                         xSessionId,
-                                                        new byte[0],
                                                         bytes,
                                                         path,
+                                                        method,
                                                         request.getHeaders().toSingleValueMap(),
                                                         Instant.now()
                                                 ));
