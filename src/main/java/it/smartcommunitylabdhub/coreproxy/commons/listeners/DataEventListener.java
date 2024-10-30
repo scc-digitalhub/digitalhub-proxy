@@ -6,10 +6,8 @@ import it.smartcommunitylabdhub.coreproxy.commons.events.EventDataResponse;
 import it.smartcommunitylabdhub.coreproxy.commons.interfaces.MapperModule;
 import it.smartcommunitylabdhub.coreproxy.commons.interfaces.TableEntry;
 import it.smartcommunitylabdhub.coreproxy.commons.interfaces.TableValue;
-import it.smartcommunitylabdhub.coreproxy.commons.models.AbstractBaseData;
 import it.smartcommunitylabdhub.coreproxy.commons.models.BaseData;
 import it.smartcommunitylabdhub.coreproxy.commons.repositories.DataDaoRepository;
-import it.smartcommunitylabdhub.coreproxy.commons.utils.HashGenerator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,14 +16,14 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
-import java.security.NoSuchAlgorithmException;
+import java.io.Serializable;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
+import java.util.UUID;
 
 
 @Component
@@ -34,10 +32,15 @@ public class DataEventListener implements InitializingBean {
 
 
     private final MapperModule mapper;
+    private final String prefix;
     private final DataDaoRepository dataDaoRepository;
+
+    private final String requestTableName;
+    private final String responseTableName;
 
     @Autowired
     public DataEventListener(@Value("${mapper.module}") String qualifier,
+                             @Value("${mapper.prefix}") String prefix,
                              ApplicationContext applicationContext, DataDaoRepository dataDaoRepository) {
 
         this.mapper = (MapperModule) applicationContext.getBean(qualifier);
@@ -47,24 +50,45 @@ public class DataEventListener implements InitializingBean {
         if (this.mapper.tableName() == null) {
             throw new IllegalArgumentException("No table name found for mapper: " + qualifier);
         }
+
+        this.prefix = prefix;
         this.dataDaoRepository = dataDaoRepository;
+
+        this.requestTableName = prefix + "request";
+        this.responseTableName = prefix + "response";
 
     }
 
     @Override
     public void afterPropertiesSet() throws Exception {
 
-        //TODO: create table on db.
         List<TableEntry> tableEntries = mapper.tableEntries();
-        tableEntries.addAll(0, List.of(
+        tableEntries.forEach(tableEntry -> {
+            String name = prefix + tableEntry.key();
+
+
+            dataDaoRepository.createTable(name,
+                    List.of(
+                            new TableEntry("id", "VARCHAR(50)"),
+                            new TableEntry("type", "VARCHAR(255)"),
+                            new TableEntry("body", tableEntry.type())
+                    ));
+        });
+
+
+        // Declare field for request and response
+        List<TableEntry> reqOrRespEntry = List.of(
                 new TableEntry("id", "VARCHAR(50)"),
+                new TableEntry("tx_id", "VARCHAR(50)"),
                 new TableEntry("path", "VARCHAR(255)"),
                 new TableEntry("method", "VARCHAR(10)"),
                 new TableEntry("timestamp", "TIMESTAMP")
-        ));
+        );
 
-        String tableName = "serve_" + HashGenerator.generateHash(mapper.tableName());
-        dataDaoRepository.createTable(tableName, tableEntries);
+        // Create request and response table
+        dataDaoRepository.createTable(requestTableName, reqOrRespEntry);
+        dataDaoRepository.createTable(responseTableName, reqOrRespEntry);
+
 
     }
 
@@ -72,40 +96,36 @@ public class DataEventListener implements InitializingBean {
     @EventListener
     public void handleRequestEventData(EventDataRequest event) {
 
-        log.info("Handling event: {}", event);
-
-        BaseData baseData = BaseData.builder()
-                .id(event.getId())
-                .path(event.getPath())
-                .method(event.getMethod())
-                .requestBody(event.getRequest())
-                .requestHeaders(event.getHeaders())
-                .timestamp(event.getInstant())
-                .build();
-
-        //TODO find the way to make possibile to set from abstract data
-        AbstractBaseData abstractBaseData = mapper.mapRequest(baseData);
-
-//        abstractBaseData.setId(event.getId());
-
-        List<TableValue> tableValues = abstractBaseData.tableValues();
-        tableValues.addAll(0, List.of(
-                new TableValue("id", Types.VARCHAR, abstractBaseData.getId()),
-                new TableValue("path", Types.VARCHAR, abstractBaseData.getPath()),
-                new TableValue("method", Types.VARCHAR, abstractBaseData.getMethod()),
-                new TableValue("timestamp", Types.TIMESTAMP, Timestamp.from(abstractBaseData.getTimestamp()))
-        ));
-
-
         try {
-            String tableName = "serve_" + HashGenerator.generateHash(mapper.tableName());
+            log.info("Handling event: {}", event);
 
-            dataDaoRepository.insert(tableName, tableValues);
+            String id = UUID.randomUUID().toString();
+
+            BaseData baseData = BaseData.builder()
+                    .id(id)
+                    .txId(event.getTxId())
+                    .path(event.getPath())
+                    .method(event.getMethod())
+                    .body(event.getBody())
+                    .timestamp(event.getInstant())
+                    .build();
+
+
+            // Store request
+            dataDaoRepository.insert(requestTableName, baseData.tableValues());
+
+
+            // Map body and store body
+            TableValue bodyTableValue = mapper.mapBody(baseData);
+            dataDaoRepository.insert(prefix + bodyTableValue.key(), List.of(
+                            new TableValue("id", Types.VARCHAR, id),
+                            new TableValue("type", Types.VARCHAR, "request"),
+                            bodyTableValue
+                    )
+            );
+
         } catch (SQLException e) {
             log.error("Error inserting data: {}", e.getMessage());
-            throw new RuntimeException(e);
-        } catch (NoSuchAlgorithmException e) {
-            log.error("Error generating hash: {}", e.getMessage());
             throw new RuntimeException(e);
         }
 
@@ -115,66 +135,36 @@ public class DataEventListener implements InitializingBean {
     @EventListener
     public void handleResponseEventData(EventDataResponse event) {
 
-        log.info("Handling event: {}", event);
-
-        BaseData baseData = BaseData.builder()
-                .id(event.getId())
-                .path(event.getPath())
-                .responseBody(event.getResponse())
-                .requestHeaders(event.getHeaders())
-                .timestamp(event.getInstant())
-                .build();
-
-        //TODO find the way to make possibile to set from abstract data
-        AbstractBaseData abstractBaseData = mapper.mapResponse(baseData);
-
-
-        List<TableValue> tableValues = abstractBaseData.tableValues();
-        tableValues.addAll(0, List.of(
-                new TableValue("id", Types.VARCHAR, abstractBaseData.getId()),
-                new TableValue("path", Types.VARCHAR, abstractBaseData.getPath()),
-                new TableValue("timestamp", Types.TIMESTAMP, Timestamp.from(abstractBaseData.getTimestamp()))
-        ));
-
-
-        //TODO when I update data I need to get previous and merge with new one..only
         try {
-            String tableName = "serve_" + HashGenerator.generateHash(mapper.tableName());
+            log.info("Handling event: {}", event);
 
-            Optional<Map<String, Object>> existingRowOptional = dataDaoRepository.findById(event.getId(), tableName);
+            String id = UUID.randomUUID().toString();
 
-            if (existingRowOptional.isPresent()) {
-                // Step 2: Get the existing row and filter columns to update if they are currently null in the database
-                Map<String, Object> existingRow = existingRowOptional.get();
-                List<TableValue> valuesToUpdate = tableValues.stream()
-                        .filter(tv -> existingRow.get(tv.key()) == null) // Only include columns with null values
-                        .collect(Collectors.toList());
+            BaseData baseData = BaseData.builder()
+                    .id(id)
+                    .txId(event.getTxId())
+                    .path(event.getPath())
+                    .method(event.getMethod())
+                    .body(event.getBody())
+                    .timestamp(event.getInstant())
+                    .build();
 
-                if (!valuesToUpdate.isEmpty()) {
-                    // Step 3: Update only columns with null values
-                    dataDaoRepository.updateNullColumnsOnly(tableName, valuesToUpdate, event.getId());
-                } else {
-                    log.info("No null columns to update for ID: {}", event.getId());
-                }
-            } else {
-                // If no row exists, insert a new one
-                dataDaoRepository.insert(tableName, tableValues);
-            }
 
+            // Store request
+            dataDaoRepository.insert(responseTableName, baseData.tableValues());
+
+
+            // Map body and store body
+            TableValue bodyTableValue = mapper.mapBody(baseData);
+            dataDaoRepository.insert(prefix + bodyTableValue.key(), List.of(
+                            new TableValue("id", Types.VARCHAR, id),
+                            new TableValue("type", Types.VARCHAR, "response"),
+                            bodyTableValue
+                    )
+            );
         } catch (SQLException e) {
             log.error("Error inserting data: {}", e.getMessage());
             throw new RuntimeException(e);
-        } catch (NoSuchAlgorithmException e) {
-            log.error("Error generating hash: {}", e.getMessage());
-            throw new RuntimeException(e);
         }
     }
-
-
-
-
-
-
-
-
 }

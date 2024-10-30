@@ -31,3 +31,4 @@ gateway:
 
 mapper:
   module: textMapperModule
+  prefix: s_

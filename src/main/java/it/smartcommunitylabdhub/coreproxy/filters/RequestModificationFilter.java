@@ -54,15 +54,15 @@ public class RequestModificationFilter extends AbstractGatewayFilterFactory<Requ
     public GatewayFilter apply(Config config) {
         return (exchange, chain) -> {
 
-            // Generate a UUID for x-session-id
-            String xSessionId = UUID.randomUUID().toString();
+            // Generate a UUID for tx-id
+            String txId = UUID.randomUUID().toString();
 
-            // Add the x-session-id header to the request
+            // Add the tx-id header to the request
             ServerHttpRequest modifiedRequest = exchange.getRequest().mutate()
-                    .header("x-session-id", xSessionId)
+                    .header("tx-id", txId)
                     .build();
 
-            log.info("Generated x-session-id: {}", xSessionId);
+            log.info("Generated tx-id: {}", txId);
 
             // Extract and log the request method (GET, POST, etc.)
             String method = modifiedRequest.getMethod().name();
@@ -79,7 +79,7 @@ public class RequestModificationFilter extends AbstractGatewayFilterFactory<Requ
                                 String path = request.getURI().getPath();
                                 log.info("Request Path: {}", path);
 
-                                // Log request headers, including the new x-session-id
+                                // Log request headers, including the new tx-id
                                 log.info("Request Headers:");
                                 request.getHeaders().forEach((key, values) ->
                                         log.info("{}: {}", key, String.join(", ", values))
@@ -100,7 +100,7 @@ public class RequestModificationFilter extends AbstractGatewayFilterFactory<Requ
                                         // Publish event to event bus
                                         eventPublisher.publishEvent(new EventDataRequest(
                                                 this,
-                                                xSessionId,
+                                                txId,
                                                 new byte[0], // GET request body is empty
                                                 path,
                                                 method,
@@ -113,33 +113,31 @@ public class RequestModificationFilter extends AbstractGatewayFilterFactory<Requ
                                     return Mono.just(dataBufferFactory.wrap(new byte[0]));
                                 }
 
-                                // Read the original request body
-                                return DataBufferUtils.join(Flux.just(originalRequestBody))
-                                        .flatMap(dataBuffer -> {
-                                            byte[] bytes = new byte[dataBuffer.readableByteCount()];
-                                            dataBuffer.read(bytes);
-                                            DataBufferUtils.release(dataBuffer); // Release the buffer after reading
 
-                                            // Send event based on whether there is a matching path
-                                            if (hasMatchingPattern) {
-                                                // Publish event to event bus
-                                                eventPublisher.publishEvent(new EventDataRequest(
-                                                        this,
-                                                        xSessionId,
-                                                        bytes,
-                                                        path,
-                                                        method,
-                                                        request.getHeaders().toSingleValueMap(),
-                                                        Instant.now()
-                                                ));
-                                            }
+                                return Mono.fromCallable(() -> {
+                                    byte[] bytes = new byte[originalRequestBody.readableByteCount()];
+                                    originalRequestBody.read(bytes);
+                                    DataBufferUtils.release(originalRequestBody);
 
-                                            // Return the original DataBuffer unchanged
-                                            DataBuffer newDataBuffer = dataBufferFactory.wrap(bytes);
-                                            return Mono.just(newDataBuffer);
-                                        });
+                                    // If there is a matching path, publish the event
+                                    if (hasMatchingPattern) {
+                                        eventPublisher.publishEvent(new EventDataRequest(
+                                                this,
+                                                txId,
+                                                bytes,
+                                                path,
+                                                method,
+                                                request.getHeaders().toSingleValueMap(),
+                                                Instant.now()
+                                        ));
+                                    }
+
+                                    // Return the original DataBuffer unchanged
+                                    return dataBufferFactory.wrap(bytes);
+                                });
+                                
                             })
-            ).filter(exchange.mutate().request(modifiedRequest).build(), chain);  // Mutate the exchange with the modified request
+            ).filter(exchange.mutate().request(modifiedRequest).build(), chain);
         };
     }
 

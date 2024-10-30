@@ -56,6 +56,7 @@ public class ResponseModificationFilter extends AbstractGatewayFilterFactory<Res
 
     @Override
     public GatewayFilter apply(Config config) {
+
         return modifyResponseBodyFilterFactory.apply(
                 new ModifyResponseBodyGatewayFilterFactory.Config()
                         .setRewriteFunction(DataBuffer.class, DataBuffer.class, (exchange, originalBodyResponse) -> {
@@ -72,56 +73,77 @@ public class ResponseModificationFilter extends AbstractGatewayFilterFactory<Res
                                     log.info("{}: {}", key, String.join(", ", values))
                             );
 
-
                             log.info("Request Headers:");
                             request.getHeaders().forEach((key, values) ->
                                     log.info("{}: {}", key, String.join(", ", values))
                             );
 
 
-                            // Read the original response body and convert it to a String
-                            return DataBufferUtils.join(Flux.just(originalBodyResponse))
-                                    .flatMap(dataBuffer -> {
-                                        // Read bytes from the DataBuffer
-                                        byte[] bytes = new byte[dataBuffer.readableByteCount()];
-                                        dataBuffer.read(bytes);
-                                        DataBufferUtils.release(dataBuffer); // Release the buffer after reading
-
-                                        // Optionally log or manipulate the bytes
-                                        String responseBody = new String(bytes, StandardCharsets.UTF_8);
-                                        log.info("Original Response Body: {}", responseBody);
+                            // Extract and log the request method (GET, POST, etc.)
+                            String method = request.getMethod().name();
+                            log.info("Request Method: {}", method);
 
 
-                                        String xSessionId = request.getHeaders()
-                                                .getFirst("x-session-id");
 
-                                        boolean hasMatchingPattern = mapper.patterns().stream()
-                                                .anyMatch(pattern -> matcher.match(pattern, path));
+                            boolean hasMatchingPattern = mapper.patterns().stream()
+                                    .anyMatch(pattern -> matcher.match(pattern, path));
 
-                                        if (hasMatchingPattern && xSessionId != null) {
-
-                                            // Add the x-session-id header to the response
-                                            response.getHeaders().add("x-session-id", xSessionId);
-
-                                            // Publish event to event bus
-                                            eventPublisher.publishEvent(new EventDataResponse(
-                                                    this,
-                                                    xSessionId,
-                                                    bytes,
-                                                    path,
-                                                    response.getHeaders().toSingleValueMap(),
-                                                    Instant.now()
-                                            ));
-                                        }
+                            String txId = request.getHeaders().getFirst("tx-id");
 
 
-                                        // Wrap the bytes back into a DataBuffer
-                                        DataBufferFactory dataBufferFactory = response.bufferFactory();
-                                        DataBuffer modifiedBodyResponse = dataBufferFactory.wrap(bytes);
+                            if (originalBodyResponse.readableByteCount() == 0) {
+                                log.warn("Original response body is empty or null. Returning empty DataBuffer but send event to store response.");
 
-                                        // Return the modified DataBuffer
-                                        return Mono.just(modifiedBodyResponse);
-                                    });
+                                if (txId != null && hasMatchingPattern) {
+
+                                    // Add the tx-id header and publish the event
+                                    response.getHeaders().add("tx-id", txId);
+
+                                    eventPublisher.publishEvent(new EventDataResponse(
+                                            this,
+                                            txId,
+                                            new byte[0],
+                                            path,
+                                            method,
+                                            response.getHeaders().toSingleValueMap(),
+                                            Instant.now()
+                                    ));
+                                }
+                            }
+
+
+                            // Read the original response body
+                            return Mono.fromCallable(() -> {
+                                // Read bytes from the original DataBuffer
+                                byte[] bytes = new byte[originalBodyResponse.readableByteCount()];
+                                originalBodyResponse.read(bytes);
+                                DataBufferUtils.release(originalBodyResponse); // Release the buffer after reading
+
+                                // Log the original response body
+                                log.info("Original Response Body: {}", new String(bytes, StandardCharsets.UTF_8));
+
+
+                                if (txId != null && hasMatchingPattern) {
+
+                                    // Add the tx-id header and publish the event
+                                    response.getHeaders().add("tx-id", txId);
+
+                                    eventPublisher.publishEvent(new EventDataResponse(
+                                            this,
+                                            txId,
+                                            bytes,
+                                            path,
+                                            method,
+                                            response.getHeaders().toSingleValueMap(),
+                                            Instant.now()
+                                    ));
+                                }
+
+                                // Return the modified DataBuffer
+                                return response.bufferFactory().wrap(bytes);
+                            });
+
+
                         }));
 
     }

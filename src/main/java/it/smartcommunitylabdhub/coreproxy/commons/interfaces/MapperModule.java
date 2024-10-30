@@ -1,8 +1,9 @@
 package it.smartcommunitylabdhub.coreproxy.commons.interfaces;
 
-import it.smartcommunitylabdhub.coreproxy.commons.models.AbstractBaseData;
 import it.smartcommunitylabdhub.coreproxy.commons.models.BaseData;
+import org.postgresql.util.PGobject;
 
+import java.sql.SQLException;
 import java.util.List;
 
 public interface MapperModule {
@@ -13,8 +14,6 @@ public interface MapperModule {
 
     List<TableEntry> tableEntries();
 
-    AbstractBaseData mapRequest(BaseData baseData);
-
-    AbstractBaseData mapResponse(BaseData baseData);
+    TableValue mapBody(BaseData baseData) throws SQLException;
 
 }

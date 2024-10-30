@@ -2,17 +2,19 @@ package it.smartcommunitylabdhub.coreproxy.commons.converters;
 
 import it.smartcommunitylabdhub.coreproxy.commons.interfaces.MapperModule;
 import it.smartcommunitylabdhub.coreproxy.commons.interfaces.TableEntry;
-import it.smartcommunitylabdhub.coreproxy.commons.models.AbstractBaseData;
+import it.smartcommunitylabdhub.coreproxy.commons.interfaces.TableValue;
 import it.smartcommunitylabdhub.coreproxy.commons.models.BaseData;
-import it.smartcommunitylabdhub.coreproxy.modules.text.models.TextData;
 import lombok.extern.slf4j.Slf4j;
+import org.postgresql.util.PGobject;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
+import java.sql.SQLException;
+import java.sql.Types;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
+//TODO try jsonb and vector
 
 @Slf4j
 @Component(value = "textMapperModule")
@@ -32,31 +34,19 @@ public class TextMapperModule implements MapperModule {
     @Override
     public List<TableEntry> tableEntries() {
         return new ArrayList<>() {{
-            add(new TableEntry("request", "VARCHAR(255)"));
-            add(new TableEntry("response", "VARCHAR(255)"));
+            add(new TableEntry("body", "TEXT"));
+            add(new TableEntry("text_json", "JSONB"));
         }};
 
     }
 
-    @Override
-    public AbstractBaseData mapResponse(BaseData baseData) {
-        TextData textData = new TextData();
+    public TableValue mapBody(BaseData baseData) throws SQLException {
 
-        textData.mapBaseFields(baseData);
-        textData.setResponse(new String(baseData.getResponseBody(),
-                StandardCharsets.UTF_8));
+        // TODO base on the path create the PGobject body
+        PGobject body = new PGobject();
+        body.setType("TEXT");
+        body.setValue(new String(baseData.getBody(), StandardCharsets.UTF_8));
 
-        return textData;
-    }
-
-    @Override
-    public TextData mapRequest(BaseData baseData) {
-        TextData textData = new TextData();
-
-        textData.mapBaseFields(baseData);
-        textData.setRequest(new String(baseData.getRequestBody(),
-                StandardCharsets.UTF_8));
-
-        return textData;
+        return new TableValue("body", Types.OTHER, body);
     }
 }

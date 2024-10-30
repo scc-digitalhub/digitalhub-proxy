@@ -9,21 +9,25 @@ import java.util.Map;
 @Getter
 public class EventDataResponse extends ApplicationEvent {
 
-    private final String id;
-    private final byte[] response;
+    private final String txId;
+    private final byte[] body;
     private final String path;
+    private final String method;
     private final Map<String, String> headers;
     private final Instant instant;
 
-    public EventDataResponse(Object source, String id, byte[] response,
-                             String path,
+    public EventDataResponse(Object source,
+                             String txId,
+                             byte[] body,
+                             String path, String method,
                              Map<String, String> headers,
                              Instant timestamp) {
         super(source);
 
-        this.id = id;
-        this.response = response;
+        this.txId = txId;
+        this.body = body;
         this.path = path;
+        this.method = method;
         this.headers = headers;
         this.instant = timestamp;
     }
